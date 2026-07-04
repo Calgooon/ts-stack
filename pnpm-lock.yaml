@@ -321,8 +321,8 @@ importers:
   packages/helpers/simple:
     dependencies:
       '@bsv/message-box-client':
-        specifier: ^2.2.0
-        version: 2.2.0(@bsv/sdk@2.1.3)
+        specifier: ^2.2.1
+        version: 2.2.1(@bsv/sdk@2.1.3)
       '@bsv/wallet-toolbox':
         specifier: ^2.3.3
         version: 2.3.3(@bsv/sdk@2.1.3)(@types/node@26.0.0)(sqlite3@6.0.1)
@@ -389,8 +389,8 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0(@bsv/sdk@2.1.3)
       '@bsv/message-box-client':
-        specifier: ^2.2.0
-        version: 2.2.0(@bsv/sdk@2.1.3)
+        specifier: ^2.2.1
+        version: 2.2.1(@bsv/sdk@2.1.3)
       '@bsv/sdk':
         specifier: 2.1.3
         version: 2.1.3
@@ -825,8 +825,8 @@ importers:
   packages/overlays/btms-backend:
     dependencies:
       '@bsv/overlay':
-        specifier: ^2.1.1
-        version: 2.1.1(@bsv/sdk@2.1.3)
+        specifier: ^2.2.0
+        version: 2.2.0(@bsv/sdk@2.1.3)
       '@bsv/sdk':
         specifier: 2.1.3
         version: 2.1.3
@@ -932,8 +932,8 @@ importers:
   packages/overlays/overlay-discovery-services:
     dependencies:
       '@bsv/overlay':
-        specifier: ^2.1.1
-        version: 2.1.1(@bsv/sdk@2.1.3)
+        specifier: ^2.2.0
+        version: 2.2.0(@bsv/sdk@2.1.3)
       '@bsv/wallet-toolbox-client':
         specifier: ^2.3.3
         version: 2.3.3(@bsv/sdk@2.1.3)
@@ -975,8 +975,8 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0(@bsv/sdk@2.1.3)
       '@bsv/overlay':
-        specifier: ^2.1.1
-        version: 2.1.1(@bsv/sdk@2.1.3)
+        specifier: ^2.2.0
+        version: 2.2.0(@bsv/sdk@2.1.3)
       '@bsv/overlay-discovery-services':
         specifier: ^2.1.0
         version: 2.1.0(@bsv/sdk@2.1.3)(socks@2.8.7)
@@ -1042,8 +1042,8 @@ importers:
   packages/overlays/topics:
     dependencies:
       '@bsv/overlay':
-        specifier: ^2.1.1
-        version: 2.1.1(@bsv/sdk@2.1.3)
+        specifier: ^2.2.0
+        version: 2.2.0(@bsv/sdk@2.1.3)
       '@bsv/templates':
         specifier: workspace:^
         version: link:../../helpers/ts-templates
@@ -2271,8 +2271,8 @@ packages:
     peerDependencies:
       '@bsv/sdk': 2.1.3
 
-  '@bsv/message-box-client@2.2.0':
-    resolution: {integrity: sha512-l/bJOI9p2wetnsYaGcRbtn53soUuQxyqtH0AliyXWuKUY+aXUArAVjCmxy1Fkv+FGsa/uws8N0w/LyI3B7uDsA==}
+  '@bsv/message-box-client@2.2.1':
+    resolution: {integrity: sha512-iuUVcjQENP6SeFGuzd8BYHuNR0Ykc17quchSUy2PcGSSCS0rglxGgmCL1QlepXgKu28sYlqG4fbIzYaTqbR4fQ==}
     peerDependencies:
       '@bsv/sdk': 2.1.3
 
@@ -2281,8 +2281,8 @@ packages:
     peerDependencies:
       '@bsv/sdk': 2.1.3
 
-  '@bsv/overlay@2.1.1':
-    resolution: {integrity: sha512-eE50GCEKpxPGGvnvmN7SxRJtCQnZn0uvQrFDTLrs5gDFbh19BJDhV6h8/Tf48mLkpkbVYVYEI1/thw/wFUuizg==}
+  '@bsv/overlay@2.2.0':
+    resolution: {integrity: sha512-rDFpH+8/leQjBnb+cXLca5fOMvquJw3Bhkq1iGnhcfu2pZG89gkuqW3BL4ZDhnODeppQLEivqTQzMu/S17hVUQ==}
     peerDependencies:
       '@bsv/sdk': 2.1.3
 
@@ -12163,7 +12163,7 @@ snapshots:
     dependencies:
       '@bsv/sdk': 2.1.3
 
-  '@bsv/message-box-client@2.2.0(@bsv/sdk@2.1.3)':
+  '@bsv/message-box-client@2.2.1(@bsv/sdk@2.1.3)':
     dependencies:
       '@bsv/authsocket-client': 2.1.0(@bsv/sdk@2.1.3)
       '@bsv/sdk': 2.1.3
@@ -12174,7 +12174,7 @@ snapshots:
 
   '@bsv/overlay-discovery-services@2.1.0(@bsv/sdk@2.1.3)(socks@2.8.7)':
     dependencies:
-      '@bsv/overlay': 2.1.1(@bsv/sdk@2.1.3)
+      '@bsv/overlay': 2.2.0(@bsv/sdk@2.1.3)
       '@bsv/sdk': 2.1.3
       '@bsv/wallet-toolbox-client': 2.3.3(@bsv/sdk@2.1.3)
       mongodb: 7.3.0(socks@2.8.7)
@@ -12196,7 +12196,7 @@ snapshots:
       - supports-color
       - tedious
 
-  '@bsv/overlay@2.1.1(@bsv/sdk@2.1.3)':
+  '@bsv/overlay@2.2.0(@bsv/sdk@2.1.3)':
     dependencies:
       '@bsv/gasp': 1.3.0(@bsv/sdk@2.1.3)
       '@bsv/sdk': 2.1.3
