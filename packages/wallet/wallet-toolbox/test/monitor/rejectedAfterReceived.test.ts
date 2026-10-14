@@ -25,32 +25,37 @@ class FakeEventSource {
   static instances: FakeEventSource[] = []
   private readonly listeners: Record<string, Array<(e: any) => void>> = {}
 
-  constructor (
+  constructor(
     public url: string,
     public opts: any
   ) {
     FakeEventSource.instances.push(this)
   }
 
-  addEventListener (type: string, fn: (e: any) => void): void {
+  addEventListener(type: string, fn: (e: any) => void): void {
     ;(this.listeners[type] ??= []).push(fn)
   }
 
-  emit (type: string, event: any = {}): void {
+  emit(type: string, event: any = {}): void {
     for (const fn of this.listeners[type] ?? []) fn(event)
   }
 
-  close (): void {}
+  close(): void {}
 }
 
-function p2pkh (): LockingScript {
+function p2pkh(): LockingScript {
   return LockingScript.fromHex('76a914' + '00'.repeat(20) + '88ac')
 }
 
-function makeTx (inputs: Array<{ txid: string, vout: number }>, outputs: number[]): Transaction {
+function makeTx(inputs: Array<{ txid: string; vout: number }>, outputs: number[]): Transaction {
   const tx = new Transaction()
   for (const input of inputs) {
-    tx.addInput({ sourceTXID: input.txid, sourceOutputIndex: input.vout, unlockingScript: new Script(), sequence: 0xffffffff })
+    tx.addInput({
+      sourceTXID: input.txid,
+      sourceOutputIndex: input.vout,
+      unlockingScript: new Script(),
+      sequence: 0xffffffff
+    })
   }
   for (const satoshis of outputs) tx.addOutput({ satoshis, lockingScript: p2pkh() })
   return tx
@@ -60,12 +65,12 @@ interface Jam {
   storage: StorageProvider
   manager: WalletStorageManager
   user: TableUser
-  txids: { M: string, F: string, R: string, C: string, H: string }
-  rows: { R: TableTransaction, C: TableTransaction }
+  txids: { M: string; F: string; R: string; C: string; H: string }
+  rows: { R: TableTransaction; C: TableTransaction }
   outputs: Record<'M0' | 'M1' | 'F0' | 'R0' | 'R1' | 'C0' | 'C1', TableOutput>
 }
 
-async function seedJam (reqCreatedAt: Date): Promise<Jam> {
+async function seedJam(reqCreatedAt: Date): Promise<Jam> {
   const storage = await _tu.createFreshSQLiteStorage({
     databasePrefix: 'rejectedAfterReceived',
     migrationName: 'rejectedAfterReceived'
@@ -78,12 +83,29 @@ async function seedJam (reqCreatedAt: Date): Promise<Jam> {
   const txF = makeTx([{ txid: 'bb'.repeat(32), vout: 0 }], [8404])
   const M = txM.id('hex')
   const F = txF.id('hex')
-  const txR = makeTx([{ txid: H, vout: 0 }, { txid: M, vout: 1 }], [1, 759])
+  const txR = makeTx(
+    [
+      { txid: H, vout: 0 },
+      { txid: M, vout: 1 }
+    ],
+    [1, 759]
+  )
   const R = txR.id('hex')
-  const txC = makeTx([{ txid: M, vout: 0 }, { txid: F, vout: 0 }, { txid: R, vout: 1 }], [1, 6654])
+  const txC = makeTx(
+    [
+      { txid: M, vout: 0 },
+      { txid: F, vout: 0 },
+      { txid: R, vout: 1 }
+    ],
+    [1, 6654]
+  )
   const C = txC.id('hex')
 
-  const insertTx = async (txid: string, tx: Transaction, status: TableTransaction['status']): Promise<TableTransaction> =>
+  const insertTx = async (
+    txid: string,
+    tx: Transaction,
+    status: TableTransaction['status']
+  ): Promise<TableTransaction> =>
     (await _tu.insertTestTransaction(storage, user, false, { txid, status, rawTx: tx.toBinary(), satoshis: 0 })).tx
   const rowM = await insertTx(M, txM, 'unproven')
   const rowF = await insertTx(F, txF, 'unproven')
@@ -115,7 +137,10 @@ async function seedJam (reqCreatedAt: Date): Promise<Jam> {
   }
 
   // Arcade's RECEIVED 202 was aggregated as success: both requests unmined.
-  for (const [txid, tx, row] of [[R, txR, rowR], [C, txC, rowC]] as const) {
+  for (const [txid, tx, row] of [
+    [R, txR, rowR],
+    [C, txC, rowC]
+  ] as const) {
     await storage.insertProvenTxReq({
       created_at: reqCreatedAt,
       updated_at: reqCreatedAt,
@@ -135,31 +160,32 @@ async function seedJam (reqCreatedAt: Date): Promise<Jam> {
   return { storage, manager, user, txids: { M, F, R, C, H }, rows: { R: rowR, C: rowC }, outputs }
 }
 
-async function changeBalance (jam: Jam): Promise<number> {
+async function changeBalance(jam: Jam): Promise<number> {
   const outputs = await jam.storage.findOutputs({ partial: { userId: jam.user.userId, change: true, spendable: true } })
   return outputs.reduce((sum, o) => sum + o.satoshis, 0)
 }
 
-async function output (jam: Jam, o: TableOutput): Promise<TableOutput> {
+async function output(jam: Jam, o: TableOutput): Promise<TableOutput> {
   return (await jam.storage.findOutputs({ partial: { outputId: o.outputId } }))[0]
 }
 
-async function txStatus (jam: Jam, row: TableTransaction): Promise<string> {
-  return (await jam.storage.findTransactions({ partial: { transactionId: row.transactionId }, noRawTx: true }))[0].status
+async function txStatus(jam: Jam, row: TableTransaction): Promise<string> {
+  return (await jam.storage.findTransactions({ partial: { transactionId: row.transactionId }, noRawTx: true }))[0]
+    .status
 }
 
-async function reqStatus (jam: Jam, txid: string): Promise<string> {
+async function reqStatus(jam: Jam, txid: string): Promise<string> {
   return (await jam.storage.findProvenTxReqs({ partial: { txid } }))[0].status
 }
 
-function utxoSpent (jam: Jam): string {
+function utxoSpent(jam: Jam): string {
   return (
     `UTXO_SPENT (70): [ProcessTransaction][${jam.txids.R}] UTXO_SPENT: ` +
     `${jam.txids.H}:0 utxo already spent by tx ${jam.txids.M}[0]`
   )
 }
 
-async function expectChainState (jam: Jam): Promise<void> {
+async function expectChainState(jam: Jam): Promise<void> {
   // The rejected retry and the action funded from its change are both failed.
   expect(await txStatus(jam, jam.rows.R)).toBe('failed')
   expect(await reqStatus(jam, jam.txids.R)).toBe('doubleSpend')
