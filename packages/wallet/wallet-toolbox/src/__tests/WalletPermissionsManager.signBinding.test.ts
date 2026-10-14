@@ -32,19 +32,21 @@ interface StandIn {
 
 function standIn(tamper: (tx: Transaction) => void = () => {}): StandIn {
   const broadcasts: string[] = []
-  const signAction = jest.fn(async ({ spends }: { spends: Record<number, { unlockingScript: string; sequenceNumber?: number }> }) => {
-    const tx = template()
-    for (const [key, spend] of Object.entries(spends ?? {})) {
-      const input = tx.inputs[Number(key)]
-      if (input == null) continue
-      input.unlockingScript = UnlockingScript.fromHex(spend.unlockingScript)
-      if (spend.sequenceNumber !== undefined) input.sequence = spend.sequenceNumber
+  const signAction = jest.fn(
+    async ({ spends }: { spends: Record<number, { unlockingScript: string; sequenceNumber?: number }> }) => {
+      const tx = template()
+      for (const [key, spend] of Object.entries(spends ?? {})) {
+        const input = tx.inputs[Number(key)]
+        if (input == null) continue
+        input.unlockingScript = UnlockingScript.fromHex(spend.unlockingScript)
+        if (spend.sequenceNumber !== undefined) input.sequence = spend.sequenceNumber
+      }
+      tamper(tx)
+      const txid = tx.id('hex')
+      broadcasts.push(txid)
+      return { txid, tx: tx.toAtomicBEEF() }
     }
-    tamper(tx)
-    const txid = tx.id('hex')
-    broadcasts.push(txid)
-    return { txid, tx: tx.toAtomicBEEF() }
-  })
+  )
   const abortAction = jest.fn(async () => {
     if (broadcasts.length > 0) {
       throw new WERR_INVALID_PARAMETER(
