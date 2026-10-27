@@ -4,6 +4,168 @@ This document captures the history of significant changes to the wallet-toolbox 
 The git commit history contains the details but is unable to draw
 attention to changes that materially alter behavior or extend functionality.
 
+## wallet-toolbox 2.15.1
+
+- The `Arcade` broadcaster treats HTTP 401 and 403 as service errors. These are
+  what bsv-blockchain/arcade's API-key authorization returns for a missing-but-required,
+  invalid, revoked or expired key, before it reads the transaction. Previously a refused
+  key was recorded as a transaction rejection, so a mistyped or revoked `arcadeApiKey`
+  marked broadcasts `invalid` and failed their transactions. The wallet now fails over
+  or keeps the transaction queued for retry, and the history note says whether the
+  configured key was refused or the endpoint requires one. No configuration or consumer
+  migration is required.
+- `createAction` sizes a caller-provided `unlockingScript` by its byte length
+  when it hands the input to storage. It used the hex string's length, twice
+  the bytes, so storage funded and priced the transaction as if that script
+  appeared twice: a 78,369 byte transaction with a 36,401 byte provided unlock
+  paid for 114,780 bytes. Inputs given only an `unlockingScriptLength` are
+  unchanged. No API, wire, or schema migration; `unlockingScriptLength` already
+  meant bytes. Upgrade the signer package; storage is unchanged.
+
+## wallet-toolbox 2.15.0 (source candidate)
+
+- Preserve the existing storage `internalizeAction(storage, auth, args, receipt?)`
+  call signature. Local funding recovery uses the separate
+  `internalizeActionWithRecovery` deep import; historical callers need no migration.
+
+- Acquire the local funding route's shared SQL receipt fence inside its atomic
+  ownership/journal transaction. A killed uncommitted writer leaves no pending
+  lease, and independently prepared contenders can reach their coordination
+  boundary. Add an optional transaction-bound backend port without changing
+  ordinary receipt leases, BRC-100 requests or test deadlines.
+
+- Require an exact canonical compressed public-key round trip for opt-in BRC-197 fixed-child recipients before ownership. Add native lifecycle coverage that preserves pre-existing transaction accounting and uses distinct fixture references; ordinary internalization is unchanged.
+
+- Add opt-in local SQLite action recovery for atomic allocation, exact prepared
+  and signed `noSend` transactions, and durable processing reconciliation.
+- Add local BRC-29 funding recovery with unique outpoint ownership, atomic wallet
+  credit, deferred monitor work and retained receipts. Deep imports require
+  explicit installation; ordinary calls, root exports and BRC-100 RPCs are unchanged.
+- Type explicit funding-recovery capacity values as numbers, matching the existing
+  configurable limits. Add retained-record representation and native ownership
+  rejection regressions; runtime validation, defaults and journal formats remain unchanged.
+- Preserve whole wallet databases and keys for these auxiliary journals. Legacy
+  entity backup/sync, browser/mobile wrappers, IndexedDB and remote providers do
+  not transport or implement them. Reconcile pending operations before rollback.
+- The previously recorded 2.14.5 no-send ownership corrections remain included.
+  This candidate has not been published and does not complete private acquisition.
+
+- `GoChaintracksServiceClient` accepts Go orphan-hash reorg announcements as well
+  as the existing TypeScript shape. Orphan headers are resolved sequentially under
+  one event deadline and validated before Monitor receives the ordered list.
+  Adds `streamErrorCount` and optional bounded `onStreamError` diagnostics.
+  Rejected events do not discard following complete events in the same chunk.
+  No listener, schema or consumer migration is required.
+
+- `TaskReorg` rechecks the latest 12 heights after each processed tip without
+  requiring reorg events. It persists unresolved recovery ranges before remote
+  work and retries them once per minute, including after restart and after
+  a height leaves the recent window. It also journals the gap observed after
+  monitor downtime. `recentDepth = 0` disables this recovery.
+- The lagged proof audit leaves an empty wallet uncheckpointed, starts at the
+  minimum stored proof height, repairs legacy empty-prefix checkpoints, and
+  retains bounded fair retries even if the tip retreats. Its compact recovery
+  state fits the monitor-event limit, independently of diagnostic size.
+- IndexedDB monitor history honors descending reads. IndexedDB automatically
+  upgrades to version 7 with a nonunique `proven_txs.height` index so bootstrap
+  does not deserialize proof blobs. Close older database connections before
+  upgrading and retain a backup; there is no SQL schema or manual data rewrite.
+
+- With the compatibility SDK, existing certificate references accept bounded
+  historical types through the normal BRC-100 APIs. Storage listing and proof
+  retain their existing queries; relinquishment inherits the updated SDK
+  reference validator on both manager and provider. Upgrade the remote storage
+  SDK for legacy relinquishment. No records, signatures or schemas are rewritten,
+  and new signing/acquisition remain strict at 32 bytes.
+
+
+- Adds a `regtest` `Chain` for Teranode regression-network deployments
+  (go-chaincfg `RegressionNetParams`). `genesisHeader('regtest')` returns the
+  canonical regtest genesis header; `ChaintracksServiceClient` and
+  `GoChaintracksServiceClient` accept a service that reports its chain as
+  `regtest`; Arcade and ChainTracks endpoints come from `REGTEST_ARCADE_URL` and
+  `REGTEST_CHAINTRACKS_URL` (`regtestArcadeUrl`, `regtestChaintracksUrl`). Like
+  TTN, the default regtest services use Arcade as broadcaster and Merkle-path
+  provider and register no legacy ARC fallback; like `tstn`, no WhatsOnChain
+  provider is registered.
+- Header proof-of-work and chain-work checks take an optional `chain`, and the
+  new `proofOfWorkLimitBits(chain)` reports the limit it selects. Only
+  `regtest` raises it, to `0x207fffff`. Every other chain, and every check that
+  names no chain, keeps the mainnet limit of `0x1d00ffff`, so no existing
+  validation is relaxed. Every ChainTracks client, storage, ingestor, bulk-file
+  path and Monitor header check now passes its configured chain.
+- `tstn` is unchanged: it keeps go-chaincfg's `TeraScalingTestNetParams`
+  genesis and proof-of-work limit. A deployment that runs regtest parameters
+  should configure `regtest`, not `tstn`.
+- A WhatsOnChain instance for a network with no WhatsOnChain service (`tstn`,
+  `regtest`) now refuses every request (`isAvailable` is `false`) instead of
+  sending it to a relative URL, which a browser resolves against the page's
+  origin. `Services.hashToHeader` no longer falls back to WhatsOnChain on those
+  networks, so their headers come only from ChainTracks.
+- BRC-177 `p nosend expiry never` is supported. The anchor funds the protected
+  action without a reclaim allowance, no reclaim transaction is built or
+  armed, and the action has no deadline, so the monitor never reclaims it. An
+  unreleased `never` action can still be aborted; aborting a released one, in
+  any later state, fails because its payment is permanently sent. Released
+  `never` actions are left out of the expiry lifecycle scan, and storage
+  `createAction` refuses caller-supplied BRC-177 metadata. `Brc177NoSendExpiryMode` gains
+  `never`, `Brc177NoSendExpiry.value` is `null` for it, and the activation
+  result's `deadline` is `null`.
+- `WalletPermissionsManager` passes `signAction` through the permission modules
+  that handled the action's `createAction`, both for a caller's `signAction`
+  and for the signing step of a one-call `createAction`. Modules receive it via
+  `onRequest` and `onResponse` with method `signAction` and may add `spends`
+  for inputs they supplied. Both calls carry `action` (`reference`, the
+  signable `transaction`, `noSend` and `createArgs`, the `createAction`
+  arguments as the modules returned them), so a module keeps no state between
+  `createAction` and `signAction`. A module request failure aborts the action; a
+  module response failure is thrown without aborting the signed action. A
+  module that rejects unknown methods must accept `signAction`.
+- `encryptMetadata(wallet, plaintext, originator?)` and
+  `maybeDecryptMetadata(wallet, value, originator?)` are exported. They encrypt
+  and decrypt metadata as a permissions manager with `encryptWalletMetadata`
+  does, so a permission module can store and read its own baskets' custom
+  instructions through the underlying wallet. The manager uses the same
+  functions.
+- `createAction` encrypts P-basket output custom instructions after the
+  permission modules run, as `internalizeAction` already does, so instructions a
+  module adds or replaces are stored encrypted.
+- New `listOutputs` special operation `specOpBasketPrefixOutputs`: with a
+  basket namespace such as `p color` in tag 0, it lists outputs from every
+  basket in that namespace that are unspent or reserved as an input of a
+  pending action (`spendable` false), ordered by txid and vout. Spent outputs
+  are excluded. The permissions manager reserves it for the admin originator.
+- `listOutputs` rejects a `balance p <module> <basket>` query with
+  `WERR_INVALID_PARAMETER`, as BRC-112 requires: the satoshi sum of a BRC-99
+  module basket is never reported past its module. `balance <basket>` on other
+  baskets is unchanged, and a module may offer `p <module> balance <basket>`.
+- `WalletPermissionsManager.getVersion` advertises the BRC-205 capability
+  attributes of the configured permission modules: a `PermissionsModule` may
+  declare `capabilities` (attribute key to value), appended to the underlying
+  version string as `base; key=value;` in scheme-id and key order, merged with
+  attributes the wallet already reports and never repeating a key. The built-in
+  BRC-177 module advertises `brc177-nosend=2`. `withBrc205Capabilities` is
+  exported.
+- `createAction` locks the known inputs it marks spent on MySQL and Postgres,
+  so of two concurrent actions spending the same input, the second sees it spent
+  and fails with the existing double-spend or unspendable-input error instead of
+  overwriting `spentBy`. SQLite and IndexedDB already serialize these writes.
+- Callers that count `listOutputs` results narrow `totalOutputs` to a number
+  with the exported `numericTotalOutputs`, following the `@bsv/sdk` change that
+  lets BRC-112 module balance queries return decimal text.
+- `@bsv/sdk` 4.0.0 is accepted as a peer alongside the existing 2.x and 3.x
+  ranges.
+
+## wallet-toolbox 2.14.10
+
+- Live `syncToWriter` / `syncFromReader` compare reader and writer
+  `TableSettings.chain` before any chunk moves and throw `WERR_NETWORK_CHAIN`
+  on mismatch. The class remains a public sdk export with its deserializer and
+  JSON round-trip. Portable BRC-38 import still throws a generic `Error`.
+  Custom `processSyncChunk` writers may set `ProcessSyncChunkResult.error`;
+  both live-sync loops throw that error and stop. First-party providers still
+  throw. No API or schema migration is required.
+
 ## wallet-toolbox 2.14.9
 
 - Complete per-transaction broadcast results when the refreshed request is
@@ -29,7 +191,9 @@ attention to changes that materially alter behavior or extend functionality.
   was encrypted before the permission module ran and again afterwards, so
   `listOutputs` (which decrypts once) returned ciphertext. The after-module
   pass now encrypts only permission-module baskets, matching `createAction`'s
-  once-only rule.- Preserve bounded pre-construction double-spend reviews from remote storage.
+  once-only rule.
+
+- Preserve bounded pre-construction double-spend reviews from remote storage.
   An empty attempted TXID is accepted only with one doubleSpend result, empty
   send results, absent constructed-action fields and nonempty competing evidence.
   Consumers must validate the evidence and synchronize the winning transaction
