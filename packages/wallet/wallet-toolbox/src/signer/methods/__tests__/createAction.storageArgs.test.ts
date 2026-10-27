@@ -60,4 +60,49 @@ describe('signer createAction storage arguments', () => {
       )
     ).toBe(signed.toBinary().length)
   })
+
+  test('keeps a sign-later unlockingScriptLength beside a provided unlocking script', async () => {
+    const unlockingScriptLength = 107
+    const sourceTransaction = new Transaction()
+    sourceTransaction.addOutput({ satoshis: 1000, lockingScript: Script.fromHex('75') })
+    sourceTransaction.addOutput({ satoshis: 1000, lockingScript: Script.fromHex('75') })
+    const inputBEEF = new Beef()
+    inputBEEF.mergeTransaction(sourceTransaction)
+    const vargs = Validation.validateCreateActionArgs({
+      description: 'spend with mixed unlocks',
+      inputBEEF: inputBEEF.toBinary(),
+      inputs: [
+        {
+          outpoint: `${sourceTransaction.id('hex')}.0`,
+          inputDescription: 'provided unlocking script',
+          unlockingScript: '5151'
+        },
+        {
+          outpoint: `${sourceTransaction.id('hex')}.1`,
+          inputDescription: 'unlocking script length only',
+          unlockingScriptLength
+        }
+      ],
+      outputs: [{ lockingScript: '51', satoshis: 1900, outputDescription: 'output' }],
+      options: { noSend: true }
+    })
+
+    const received: Validation.ValidCreateActionArgs[] = []
+    const planned = new Error('stop after the storage plan request')
+    const wallet = {
+      telemetry: { enabled: false },
+      actionBatch: { plan: async () => undefined },
+      storage: {
+        createAction: async (args: Validation.ValidCreateActionArgs) => {
+          received.push(args)
+          throw planned
+        }
+      }
+    } as unknown as Wallet
+
+    await expect(createAction(wallet, { identityKey: `02${'11'.repeat(32)}`, userId: 1 }, vargs)).rejects.toBe(planned)
+
+    expect(received[0].inputs.map(input => input.unlockingScript)).toEqual([undefined, undefined])
+    expect(received[0].inputs.map(input => input.unlockingScriptLength)).toEqual([2, unlockingScriptLength])
+  })
 })
