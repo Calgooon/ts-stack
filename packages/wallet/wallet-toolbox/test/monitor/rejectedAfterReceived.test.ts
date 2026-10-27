@@ -3,6 +3,7 @@ import { _tu, setLogging } from '../utils/TestUtilsWalletStorage'
 import { StorageProvider, WalletStorageManager } from '../../src/index.all'
 import { TaskArcadeSSE } from '../../src/monitor/tasks/TaskArcSSE'
 import { TaskReconcilePendingTransactions } from '../../src/monitor/tasks/TaskReconcilePendingTransactions'
+import { failPendingDescendants } from '../../src/storage/methods/reconcileFailedTransactionInputs'
 import type { TableOutput, TableTransaction, TableUser } from '../../src/storage/schema/tables'
 
 setLogging(false)
@@ -303,5 +304,34 @@ describe('a REJECTED answer after RECEIVED', () => {
 
     expect(await reqStatus(jam, jam.txids.R)).toBe('doubleSpend')
     expect((await output(jam, jam.outputs.M1)).spendable).toBe(false)
+  })
+
+  test('the cascade finds a descendant by txid and leaves completed transactions and unparseable requests alone', async () => {
+    jam = await seedJam(new Date())
+    const { storage } = jam
+    // C's request lists no transaction ids, and C is already completed locally.
+    const reqC = (await storage.findProvenTxReqs({ partial: { txid: jam.txids.C } }))[0]
+    await storage.updateProvenTxReq(reqC.provenTxReqId, { notify: '{}' })
+    await storage.updateTransaction(jam.rows.C.transactionId, { status: 'completed' })
+    // A pending request whose raw transaction does not parse spends nothing.
+    const unparseable = 'cc'.repeat(32)
+    await storage.insertProvenTxReq({
+      created_at: new Date(),
+      updated_at: new Date(),
+      provenTxReqId: 0,
+      txid: unparseable,
+      status: 'unmined',
+      attempts: 0,
+      notified: false,
+      history: '{}',
+      notify: '{}',
+      rawTx: [0xff]
+    })
+
+    expect(await failPendingDescendants([jam.txids.R], storage)).toEqual([jam.txids.C])
+
+    expect(await reqStatus(jam, jam.txids.C)).toBe('invalid')
+    expect(await txStatus(jam, jam.rows.C)).toBe('completed')
+    expect(await reqStatus(jam, unparseable)).toBe('unmined')
   })
 })

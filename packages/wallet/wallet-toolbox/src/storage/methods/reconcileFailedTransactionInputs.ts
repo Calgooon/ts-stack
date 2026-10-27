@@ -3,7 +3,7 @@ import type * as sdk from '../../sdk'
 import { StorageProvider } from '../StorageProvider'
 import { EntityProvenTxReq } from '../schema/entities'
 import { ProvenTxReqNonTerminalStatus } from '../../sdk/types'
-import { TableOutput } from '../schema/tables'
+import { TableOutput, TableProvenTxReq } from '../schema/tables'
 import { verifyId } from '../../utility/utilityHelpers'
 import {
   classifyOutputUtxo,
@@ -166,58 +166,82 @@ export async function failPendingDescendants(
   storage: StorageProvider,
   trx?: sdk.TrxToken
 ): Promise<string[]> {
-  const failed = new Set(terminalTxids)
   const pending = await storage.findProvenTxReqs({ partial: {}, status: ProvenTxReqNonTerminalStatus, trx })
-  const sources = new Map<number, string[]>()
-  for (const reqApi of pending) {
-    try {
-      sources.set(
-        reqApi.provenTxReqId,
-        Transaction.fromBinary(reqApi.rawTx)
-          .inputs.map(input => input.sourceTXID ?? '')
-          .filter(txid => txid !== '')
-      )
-    } catch {
-      sources.set(reqApi.provenTxReqId, [])
-    }
-  }
+  const descendants = findPendingDescendants(terminalTxids, pending)
+  // Descendants fail one at a time, in order, inside the caller's storage transaction.
+  await descendants.reduce<Promise<void>>(async (previous, descendant) => {
+    await previous
+    await failDescendant(descendant, storage, trx)
+  }, Promise.resolve())
+  return descendants.map(({ reqApi }) => reqApi.txid)
+}
 
-  const descendants: string[] = []
+interface PendingDescendant {
+  reqApi: TableProvenTxReq
+  parentTxids: string[]
+}
+
+/**
+ * The pending requests that spend an output of a terminal transaction, or of
+ * a request found here, in the order they fail, each with the failed parents
+ * it spends. Passes over `pending` repeat until one finds nothing new.
+ */
+function findPendingDescendants(terminalTxids: string[], pending: TableProvenTxReq[]): PendingDescendant[] {
+  const failed = new Set(terminalTxids)
+  const candidates = pending.map(reqApi => ({ reqApi, sources: sourceTxids(reqApi.rawTx) }))
+  const descendants: PendingDescendant[] = []
   let grew = true
   while (grew) {
     grew = false
-    for (const reqApi of pending) {
+    for (const { reqApi, sources } of candidates) {
       if (failed.has(reqApi.txid)) continue
-      const parentTxids = [...new Set(sources.get(reqApi.provenTxReqId)?.filter(txid => failed.has(txid)) ?? [])]
+      const parentTxids = [...new Set(sources.filter(txid => failed.has(txid)))]
       if (parentTxids.length === 0) continue
-
-      const req = new EntityProvenTxReq(reqApi)
-      req.status = 'invalid'
-      req.addHistoryNote({
-        when: new Date().toISOString(),
-        what: 'failedParentCascade',
-        parentTxids: parentTxids.join(',')
-      })
-      await req.updateStorageDynamicProperties(storage, trx)
-      let transactionIds = req.notify.transactionIds ?? []
-      if (transactionIds.length === 0) {
-        transactionIds = (await storage.findTransactions({ partial: { txid: req.txid }, noRawTx: true, trx })).map(
-          tx => tx.transactionId
-        )
-      }
-      for (const transactionId of transactionIds) {
-        const tx = (await storage.findTransactions({ partial: { transactionId }, noRawTx: true, trx }))[0]
-        if (tx == null || tx.status === 'failed' || tx.status === 'completed' || tx.provenTxId != null) continue
-        await storage.updateTransactionStatus('failed', transactionId, undefined, undefined, trx)
-      }
-      await quarantineReqInputsFromFailedParents(req, parentTxids, storage, trx)
-
-      failed.add(req.txid)
-      descendants.push(req.txid)
+      failed.add(reqApi.txid)
+      descendants.push({ reqApi, parentTxids })
       grew = true
     }
   }
   return descendants
+}
+
+/** The txids a raw transaction spends from; none when it does not parse. */
+function sourceTxids(rawTx: number[]): string[] {
+  try {
+    return Transaction.fromBinary(rawTx)
+      .inputs.map(input => input.sourceTXID)
+      .filter((txid): txid is string => txid != null)
+  } catch {
+    return []
+  }
+}
+
+async function failDescendant(
+  { reqApi, parentTxids }: PendingDescendant,
+  storage: StorageProvider,
+  trx?: sdk.TrxToken
+): Promise<void> {
+  const req = new EntityProvenTxReq(reqApi)
+  req.status = 'invalid'
+  req.addHistoryNote({
+    when: new Date().toISOString(),
+    what: 'failedParentCascade',
+    parentTxids: parentTxids.join(',')
+  })
+  await req.updateStorageDynamicProperties(storage, trx)
+  let transactionIds = req.notify.transactionIds ?? []
+  if (transactionIds.length === 0) {
+    transactionIds = (await storage.findTransactions({ partial: { txid: req.txid }, noRawTx: true, trx })).map(
+      tx => tx.transactionId
+    )
+  }
+  await transactionIds.reduce<Promise<void>>(async (previous, transactionId) => {
+    await previous
+    const tx = (await storage.findTransactions({ partial: { transactionId }, noRawTx: true, trx }))[0]
+    if (tx == null || tx.status === 'failed' || tx.status === 'completed' || tx.provenTxId != null) return
+    await storage.updateTransactionStatus('failed', transactionId, undefined, undefined, trx)
+  }, Promise.resolve())
+  await quarantineReqInputsFromFailedParents(req, parentTxids, storage, trx)
 }
 
 /**
