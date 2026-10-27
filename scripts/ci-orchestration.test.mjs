@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { isDeepStrictEqual } from 'node:util'
 
 import { buildMutationTargets } from '../governance/mutation-testing/targets.mjs'
 import { planShards } from './ci-shard-plan.mjs'
@@ -179,6 +180,62 @@ test('CI contributes mobile and type-only wallet surfaces to aggregate patch cov
   for (const source of ['index.mobile.ts', 'BulkIngestorApi.ts', 'ChaintracksClientApi.ts']) {
     assert.ok(mobileCoverage.includes(source), `${source} must be present in mobile LCOV`)
   }
+})
+
+test('application dependent-test shards run the complete suite beside the planned packages', () => {
+  const workflow = readFileSync(CI_PATH, 'utf8')
+  const jobs = Object.fromEntries(workflowJobBlocks(workflow).map(job => [job.name, job.source]))
+  const command = jobs.scope.match(
+    /DEPENDENT_TEST_MATRIX=\$\(jq -c --argjson all "\$DEPENDENT_TEST_PACKAGES" '([\s\S]*?)' <<<"\$DEPENDENT_TEST_MATRIX"\)/
+  )?.[1]
+  assert.ok(command)
+  assert.match(
+    jobs.scope,
+    /DEPENDENT_TEST_ORDINARY=\$\(jq -c 'map\(select\(\. != "@bsv\/output-knowledge"\)\)' <<<"\$DEPENDENT_TEST_PACKAGES"\)/
+  )
+  for (const selected of [
+    ['@bsv/output-knowledge'],
+    ['other'],
+    ['other', 'second'],
+    ['other', '@bsv/output-knowledge', 'second']
+  ]) {
+    const planned = planShards(
+      selected.filter(name => name !== '@bsv/output-knowledge'),
+      {}
+    )
+    const rows = JSON.parse(
+      execFileSync('jq', ['-c', '--argjson', 'all', JSON.stringify(selected), command], {
+        input: JSON.stringify(planned),
+        encoding: 'utf8'
+      })
+    ).include
+    const application = rows.filter(row => row.application !== 0)
+    assert.deepEqual(
+      application.map(row => row.application),
+      selected.includes('@bsv/output-knowledge')
+        ? Array.from({ length: APPLICATION_COVERAGE_SHARDS }, (_, index) => index + 1)
+        : []
+    )
+    assert.ok(
+      application.every(
+        row =>
+          row.total === APPLICATION_COVERAGE_SHARDS &&
+          row.shard === row.application &&
+          isDeepStrictEqual(row.packages, ['@bsv/output-knowledge'])
+      )
+    )
+    const other = selected.filter(name => name !== '@bsv/output-knowledge')
+    const union = rows.filter(row => row.application === 0).flatMap(row => row.packages)
+    assert.deepEqual(union.sort(), [...other].sort())
+    assert.ok(rows.length > 0)
+  }
+  assert.match(jobs['dependent-tests'], /^    timeout-minutes: 30$/m)
+  assert.match(jobs['dependent-tests'], /^        if: matrix\.application == 0$/m)
+  assert.match(jobs['dependent-tests'], /^        if: matrix\.application != 0$/m)
+  assert.match(
+    jobs['dependent-tests'],
+    /--script test --jest-shard "\$\{\{ matrix\.application \}\}\/\$\{\{ matrix\.total \}\}"/
+  )
 })
 
 test('application coverage shards retain the complete selection and a required merged global gate', () => {
