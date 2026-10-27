@@ -619,8 +619,9 @@ async function dispatchAtomicBEEF(
   // Every BUMP must resolve to the merkle root the vector carries for its height.
   const headers = input['headers'] as Record<string, string>
   const chainTracker = {
-    isValidRootForHeight: async (root: string, height: number) => headers[String(height)] === root,
-    currentHeight: async () => Math.max(...Object.keys(headers).map(Number))
+    isValidRootForHeight: (root: string, height: number) =>
+      Promise.resolve(headers[String(height)] === root),
+    currentHeight: () => Promise.resolve(Math.max(...Object.keys(headers).map(Number)))
   }
   expect(await Beef.fromBinary(beefBytes).verify(chainTracker)).toBe(true)
 }
