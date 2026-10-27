@@ -182,37 +182,40 @@ test('CI contributes mobile and type-only wallet surfaces to aggregate patch cov
   }
 })
 
-test('application dependent-test shards run the complete suite beside the planned packages', () => {
-  const workflow = readFileSync(CI_PATH, 'utf8')
-  const jobs = Object.fromEntries(workflowJobBlocks(workflow).map(job => [job.name, job.source]))
-  const command = jobs.scope.match(
-    /DEPENDENT_TEST_MATRIX=\$\(jq -c --argjson all "\$DEPENDENT_TEST_PACKAGES" '([\s\S]*?)' <<<"\$DEPENDENT_TEST_MATRIX"\)/
+const APPLICATION_PACKAGE = '@bsv/output-knowledge'
+
+// Run a prepare-step jq that appends the application's shard rows to a planned
+// matrix, and check every selection keeps each other package exactly once.
+function assertApplicationMatrix(
+  scope,
+  variable,
+  packagesVariable,
+  { applicationPackages, emptySelection, uniqueIds }
+) {
+  const command = scope.match(
+    new RegExp(
+      String.raw`${variable}=\$\(jq -c --argjson all "\$${packagesVariable}" '([\s\S]*?)' <<<"\$${variable}"\)`
+    )
   )?.[1]
   assert.ok(command)
-  assert.match(
-    jobs.scope,
-    /DEPENDENT_TEST_ORDINARY=\$\(jq -c 'map\(select\(\. != "@bsv\/output-knowledge"\)\)' <<<"\$DEPENDENT_TEST_PACKAGES"\)/
-  )
   for (const selected of [
-    ['@bsv/output-knowledge'],
+    ...(emptySelection ? [[]] : []),
+    [APPLICATION_PACKAGE],
     ['other'],
     ['other', 'second'],
-    ['other', '@bsv/output-knowledge', 'second']
+    ['other', APPLICATION_PACKAGE, 'second']
   ]) {
-    const planned = planShards(
-      selected.filter(name => name !== '@bsv/output-knowledge'),
-      {}
-    )
+    const other = selected.filter(name => name !== APPLICATION_PACKAGE)
     const rows = JSON.parse(
       execFileSync('jq', ['-c', '--argjson', 'all', JSON.stringify(selected), command], {
-        input: JSON.stringify(planned),
+        input: JSON.stringify(planShards(other, {})),
         encoding: 'utf8'
       })
     ).include
     const application = rows.filter(row => row.application !== 0)
     assert.deepEqual(
       application.map(row => row.application),
-      selected.includes('@bsv/output-knowledge')
+      selected.includes(APPLICATION_PACKAGE)
         ? Array.from({ length: APPLICATION_COVERAGE_SHARDS }, (_, index) => index + 1)
         : []
     )
@@ -221,14 +224,28 @@ test('application dependent-test shards run the complete suite beside the planne
         row =>
           row.total === APPLICATION_COVERAGE_SHARDS &&
           row.shard === row.application &&
-          isDeepStrictEqual(row.packages, ['@bsv/output-knowledge'])
+          isDeepStrictEqual(row.packages, applicationPackages)
       )
     )
-    const other = selected.filter(name => name !== '@bsv/output-knowledge')
     const union = rows.filter(row => row.application === 0).flatMap(row => row.packages)
     assert.deepEqual(union.sort(), [...other].sort())
-    assert.ok(rows.length > 0)
+    if (selected.length > 0) assert.ok(rows.length > 0)
+    if (uniqueIds) assert.equal(new Set(rows.map(row => row.id)).size, rows.length)
   }
+}
+
+test('application dependent-test shards run the complete suite beside the planned packages', () => {
+  const workflow = readFileSync(CI_PATH, 'utf8')
+  const jobs = Object.fromEntries(workflowJobBlocks(workflow).map(job => [job.name, job.source]))
+  assert.match(
+    jobs.scope,
+    /DEPENDENT_TEST_ORDINARY=\$\(jq -c 'map\(select\(\. != "@bsv\/output-knowledge"\)\)' <<<"\$DEPENDENT_TEST_PACKAGES"\)/
+  )
+  assertApplicationMatrix(jobs.scope, 'DEPENDENT_TEST_MATRIX', 'DEPENDENT_TEST_PACKAGES', {
+    applicationPackages: [APPLICATION_PACKAGE],
+    emptySelection: false,
+    uniqueIds: false
+  })
   assert.match(jobs['dependent-tests'], /^    timeout-minutes: 30$/m)
   assert.match(jobs['dependent-tests'], /^        if: matrix\.application == 0$/m)
   assert.match(jobs['dependent-tests'], /^        if: matrix\.application != 0$/m)
@@ -241,45 +258,11 @@ test('application dependent-test shards run the complete suite beside the planne
 test('application coverage shards retain the complete selection and a required merged global gate', () => {
   const workflow = readFileSync(CI_PATH, 'utf8')
   const jobs = Object.fromEntries(workflowJobBlocks(workflow).map(job => [job.name, job.source]))
-  const command = jobs.scope.match(
-    /COVERAGE_OTHER_MATRIX=\$\(jq -c --argjson all "\$COVERAGE_OTHER_PACKAGES" '([\s\S]*?)' <<<"\$COVERAGE_OTHER_MATRIX"\)/
-  )?.[1]
-  assert.ok(command)
-  for (const selected of [
-    [],
-    ['@bsv/output-knowledge'],
-    ['other'],
-    ['other', 'second'],
-    ['other', '@bsv/output-knowledge', 'second']
-  ]) {
-    const planned = planShards(
-      selected.filter(name => name !== '@bsv/output-knowledge'),
-      {}
-    )
-    const rows = JSON.parse(
-      execFileSync('jq', ['-c', '--argjson', 'all', JSON.stringify(selected), command], {
-        input: JSON.stringify(planned),
-        encoding: 'utf8'
-      })
-    ).include
-    const application = rows.filter(row => row.application !== 0)
-    assert.deepEqual(
-      application.map(row => row.application),
-      selected.includes('@bsv/output-knowledge')
-        ? Array.from({ length: APPLICATION_COVERAGE_SHARDS }, (_, index) => index + 1)
-        : []
-    )
-    assert.ok(
-      application.every(
-        row => row.total === APPLICATION_COVERAGE_SHARDS && row.shard === row.application
-      )
-    )
-    const other = selected.filter(name => name !== '@bsv/output-knowledge')
-    const packageRows = rows.filter(row => row.application === 0)
-    const union = packageRows.flatMap(row => row.packages)
-    assert.deepEqual(union.sort(), [...other].sort())
-    assert.equal(new Set(rows.map(row => row.id)).size, rows.length)
-  }
+  assertApplicationMatrix(jobs.scope, 'COVERAGE_OTHER_MATRIX', 'COVERAGE_OTHER_PACKAGES', {
+    applicationPackages: [],
+    emptySelection: true,
+    uniqueIds: true
+  })
   assert.match(jobs['coverage-other'], /^    timeout-minutes: 35$/m)
   assert.match(jobs['coverage-other'], /node scripts\/output-knowledge-coverage.mjs collect/)
   assert.match(jobs['coverage-other'], /name: coverage-other-\$\{\{ matrix.id \}\}/)
